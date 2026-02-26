@@ -61,6 +61,53 @@ const handler = async (req: Request) => {
       const originalTool = server.tool.bind(server);
       server.tool = function (name: string, ...rest: unknown[]) {
         toolCount++;
+        const lastIdx = rest.length - 1;
+        const originalHandler = rest[lastIdx];
+        if (typeof originalHandler === "function") {
+          rest[lastIdx] = async (...args: unknown[]) => {
+            const start = Date.now();
+            try {
+              const result = await (originalHandler as (...a: unknown[]) => unknown)(
+                ...args
+              );
+              const res =
+                result && typeof result === "object" && "content" in result
+                  ? (result as { content?: unknown[]; isError?: boolean })
+                  : null;
+              const isError = res?.isError === true;
+              const text =
+                res?.content?.[0] &&
+                typeof res.content[0] === "object" &&
+                "text" in res.content[0]
+                  ? String((res.content[0] as { text?: string }).text ?? "")
+                  : "";
+              const preview = text.length > 300 ? text.slice(0, 300) + "…" : text;
+              console.log(
+                JSON.stringify({
+                  event: "tool_call",
+                  tool: name,
+                  success: !isError,
+                  is_error: isError,
+                  duration_ms: Date.now() - start,
+                  result_preview: isError ? preview : preview.slice(0, 150),
+                })
+              );
+              return result;
+            } catch (err) {
+              console.log(
+                JSON.stringify({
+                  event: "tool_call",
+                  tool: name,
+                  success: false,
+                  is_error: true,
+                  error: err instanceof Error ? err.message : String(err),
+                  duration_ms: Date.now() - start,
+                })
+              );
+              throw err;
+            }
+          };
+        }
         return originalTool(name, ...rest);
       };
 
