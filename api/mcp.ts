@@ -48,11 +48,23 @@ function safeStringify(obj: unknown, space?: number): string {
 
 const handler = async (req: Request) => {
   const auth = getAuthFromRequest(req);
-  console.log("🌐 Incoming request to MCP handler, token present:", !!auth);
+  console.log(
+    JSON.stringify({
+      event: "mcp_request",
+      token_present: !!auth,
+    })
+  );
 
   return createMcpHandler(
     (server) => {
-      console.log("🚀 MCP server starting");
+      let toolCount = 0;
+      const originalTool = server.tool.bind(server);
+      server.tool = function (name: string, ...rest: unknown[]) {
+        toolCount++;
+        return originalTool(name, ...rest);
+      };
+
+      console.log("🚀 MCP handshake: server starting");
 
       // Health check tool
       server.tool(
@@ -2280,7 +2292,14 @@ const handler = async (req: Request) => {
         }
       );
 
-      console.log("✅ MCP server initialized with tools");
+      console.log(
+        JSON.stringify({
+          event: "mcp_handshake_complete",
+          tools_count: toolCount,
+          token_present: !!auth,
+          server_name: "Meta Marketing API Server",
+        })
+      );
     },
     {
       // Server options
