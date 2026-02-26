@@ -226,6 +226,12 @@ export class MetaApiClient {
     );
   }
 
+  async getAdSet(adSetId: string): Promise<AdSet> {
+    return this.makeRequest<AdSet>(
+      `${adSetId}?fields=id,name,campaign_id,account_id,status,effective_status,created_time,updated_time,start_time,end_time,daily_budget,lifetime_budget,bid_amount,billing_event,optimization_goal,targeting`
+    );
+  }
+
   async createCampaign(
     accountId: string,
     campaignData: {

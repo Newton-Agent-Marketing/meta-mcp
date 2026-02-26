@@ -30,6 +30,22 @@ function getAuthFromRequest(req: Request): AuthManager | null {
 const TOKEN_REQUIRED_MSG =
   "Meta access token required. Send X-Meta-Access-Token or Authorization: Bearer <token>";
 
+/** Safe JSON.stringify that handles circular refs (avoids "Maximum call stack size exceeded"). */
+function safeStringify(obj: unknown, space?: number): string {
+  const seen = new WeakSet();
+  return JSON.stringify(
+    obj,
+    (_, value) => {
+      if (value !== null && typeof value === "object") {
+        if (seen.has(value)) return "[Circular]";
+        seen.add(value);
+      }
+      return value;
+    },
+    space ?? 2
+  );
+}
+
 const handler = async (req: Request) => {
   const auth = getAuthFromRequest(req);
   console.log("🌐 Incoming request to MCP handler, token present:", !!auth);
@@ -274,18 +290,14 @@ const handler = async (req: Request) => {
               content: [
                 {
                   type: "text",
-                  text: JSON.stringify(
-                    {
-                      success: true,
-                      insights: insights,
-                      object_id,
-                      level,
-                      date_preset: params.date_preset,
-                      message: "Insights retrieved successfully",
-                    },
-                    null,
-                    2
-                  ),
+                  text: safeStringify({
+                    success: true,
+                    insights: insights,
+                    object_id,
+                    level,
+                    date_preset: params.date_preset,
+                    message: "Insights retrieved successfully",
+                  }),
                 },
               ],
             };
@@ -304,6 +316,144 @@ const handler = async (req: Request) => {
                           : "Unknown error",
                       object_id,
                       timestamp: new Date().toISOString(),
+                    },
+                    null,
+                    2
+                  ),
+                },
+              ],
+              isError: true,
+            };
+          }
+        }
+      );
+
+      // Get single campaign by ID
+      server.tool(
+        "get_campaign",
+        "Get a single campaign by ID",
+        {
+          campaign_id: z.string().describe("The campaign ID"),
+        },
+        async ({ campaign_id }) => {
+          try {
+            if (!auth) throw new Error(TOKEN_REQUIRED_MSG);
+            const metaClient = new MetaApiClient(auth);
+            const campaign = await metaClient.getCampaign(campaign_id);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(
+                    { success: true, campaign },
+                    null,
+                    2
+                  ),
+                },
+              ],
+            };
+          } catch (error) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(
+                    {
+                      success: false,
+                      error:
+                        error instanceof Error ? error.message : "Unknown error",
+                    },
+                    null,
+                    2
+                  ),
+                },
+              ],
+              isError: true,
+            };
+          }
+        }
+      );
+
+      // Get single ad set by ID
+      server.tool(
+        "get_ad_set",
+        "Get a single ad set by ID",
+        {
+          ad_set_id: z.string().describe("The ad set ID"),
+        },
+        async ({ ad_set_id }) => {
+          try {
+            if (!auth) throw new Error(TOKEN_REQUIRED_MSG);
+            const metaClient = new MetaApiClient(auth);
+            const adSet = await metaClient.getAdSet(ad_set_id);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(
+                    { success: true, ad_set: adSet },
+                    null,
+                    2
+                  ),
+                },
+              ],
+            };
+          } catch (error) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(
+                    {
+                      success: false,
+                      error:
+                        error instanceof Error ? error.message : "Unknown error",
+                    },
+                    null,
+                    2
+                  ),
+                },
+              ],
+              isError: true,
+            };
+          }
+        }
+      );
+
+      // Get single ad account by ID
+      server.tool(
+        "get_ad_account",
+        "Get a single ad account by ID",
+        {
+          account_id: z.string().describe("The ad account ID (e.g. act_123)"),
+        },
+        async ({ account_id }) => {
+          try {
+            if (!auth) throw new Error(TOKEN_REQUIRED_MSG);
+            const metaClient = new MetaApiClient(auth);
+            const account = await metaClient.getAdAccount(account_id);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(
+                    { success: true, account },
+                    null,
+                    2
+                  ),
+                },
+              ],
+            };
+          } catch (error) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(
+                    {
+                      success: false,
+                      error:
+                        error instanceof Error ? error.message : "Unknown error",
                     },
                     null,
                     2
