@@ -78,14 +78,22 @@ const handler = async (req: Request) => {
     })
   );
 
+  // MCP transport requires Accept: application/json, text/event-stream.
+  // CLI/subprocess clients sometimes omit it; ensure it's set to avoid 406.
+  const headers = new Headers(req.headers);
+  const accept = headers.get("accept") ?? "";
+  if (!accept.includes("application/json") || !accept.includes("text/event-stream")) {
+    headers.set("accept", "application/json, text/event-stream");
+  }
+
   const reqToPass =
     bodyForHandler !== undefined
       ? new Request(req.url, {
           method: req.method,
-          headers: req.headers,
+          headers,
           body: bodyForHandler,
         })
-      : req;
+      : new Request(req.url, { method: req.method, headers });
 
   return createMcpHandler(
     (server) => {
