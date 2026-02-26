@@ -45,6 +45,7 @@ createServer(async (req, res) => {
         status: "ok",
         message: "Meta MCP server is running",
         endpoints: { mcp: "/api/mcp", health: "/health" },
+        build: "accept-header-fix-v1",
       })
     );
     return;
