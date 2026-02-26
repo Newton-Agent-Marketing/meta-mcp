@@ -63,10 +63,9 @@ createServer(async (req, res) => {
     const url = `${BASE_URL}${req.url}`;
     const handler = req.method === "POST" ? POST : GET;
     const headers = headersToRecord(req.headers);
-    // MCP requires Accept: application/json, text/event-stream; ensure it's set
-    if (!headers["accept"]?.includes("application/json") || !headers["accept"]?.includes("text/event-stream")) {
-      headers["accept"] = "application/json, text/event-stream";
-    }
+    // MCP transport requires Accept: application/json, text/event-stream.
+    // Always set it for MCP paths (proxies/load balancers can strip or alter it on EC2).
+    headers["accept"] = "application/json, text/event-stream";
     const response = await handler(
       new Request(url, {
         method: req.method ?? "GET",
