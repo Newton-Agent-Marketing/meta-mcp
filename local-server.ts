@@ -63,10 +63,25 @@ createServer(async (req, res) => {
     const body = await readBody(req);
     const url = `${BASE_URL}${req.url}`;
     const handler = req.method === "POST" ? POST : GET;
+    const rawHeaders = headersToRecord(req.headers);
+    console.log(
+      JSON.stringify({
+        event: "local_server_request",
+        path,
+        incoming_accept: rawHeaders["accept"] ?? rawHeaders["Accept"] ?? "(missing)",
+      })
+    );
     // Use Headers object (not plain object) so Accept is preserved through adapter chain.
     // MCP transport requires Accept: application/json, text/event-stream.
-    const headers = new Headers(headersToRecord(req.headers));
+    const headers = new Headers(rawHeaders);
     headers.set("Accept", "application/json, text/event-stream");
+    console.log(
+      JSON.stringify({
+        event: "local_server_headers",
+        path,
+        outgoing_accept: headers.get("Accept"),
+      })
+    );
     const response = await handler(
       new Request(url, {
         method: req.method ?? "GET",

@@ -80,6 +80,15 @@ const handler = async (req: Request) => {
 
   // MCP transport requires Accept: application/json, text/event-stream.
   // Always set explicitly (adapter/Node conversion can lose it on some platforms).
+  const incomingAccept = req.headers.get("accept") ?? req.headers.get("Accept") ?? "(missing)";
+  console.log(
+    JSON.stringify({
+      event: "mcp_handler_incoming",
+      path,
+      incoming_accept: incomingAccept,
+      headers_keys: [...req.headers.keys()],
+    })
+  );
   const headers = new Headers(req.headers);
   headers.set("Accept", "application/json, text/event-stream");
 
@@ -92,7 +101,16 @@ const handler = async (req: Request) => {
         })
       : new Request(req.url, { method: req.method, headers });
 
-  return createMcpHandler(
+  console.log(
+    JSON.stringify({
+      event: "mcp_handler_reqToPass",
+      path,
+      reqToPass_accept: reqToPass.headers.get("Accept"),
+      reqToPass_headers_entries: Object.fromEntries(reqToPass.headers.entries()),
+    })
+  );
+
+  const response = await createMcpHandler(
     (server) => {
       let toolCount = 0;
       const originalTool = server.tool.bind(server);
@@ -2395,6 +2413,16 @@ const handler = async (req: Request) => {
       verboseLogs: true,
     }
   )(reqToPass);
+
+  console.log(
+    JSON.stringify({
+      event: "mcp_response",
+      path,
+      status: response.status,
+      status_406: response.status === 406,
+    })
+  );
+  return response;
 };
 
 export { handler as GET, handler as POST };
