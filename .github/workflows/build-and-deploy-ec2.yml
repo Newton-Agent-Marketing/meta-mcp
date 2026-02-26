@@ -1,0 +1,111 @@
+# Deploy Meta MCP to EC2 (same host as newton-agents-sdk).
+# Trigger: push to prod or manual. Uses same EC2 host/user/SSH key; MCP-specific path.
+#
+# Required secrets: EC2_SSH_PRIVATE_KEY (or EC2_SSH_PRIVATE_KEY_B64), EC2_HOST, EC2_USER
+# Optional: EC2_MCP_PATH (default /home/ubuntu/meta-mcp)
+# Optional .env: set vars.USE_MCP_ENV_SECRET=true and secrets.MCP_ENV_B64 (base64 of .env)
+name: Build and Deploy Meta MCP to EC2
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_approval:
+        description: 'Skip approval (only if env allows)'
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches: [prod]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  approve:
+    name: Human approval
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.EC2_APP_URL || 'https://github.com' }}
+    steps:
+      - name: Approval gate
+        run: |
+          echo "Deployment approved. SHA ${{ github.sha }}"
+          echo "Proceeding to deploy Meta MCP to EC2."
+
+  deploy:
+    name: Deploy Meta MCP to EC2
+    needs: approve
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: |
+          V=$(node -p "require('./package.json').version")
+          echo "version=$V" >> $GITHUB_OUTPUT
+          echo "Deploying Meta MCP version $V"
+
+      - name: Write SSH key
+        env:
+          SSH_KEY_B64: ${{ secrets.EC2_SSH_PRIVATE_KEY_B64 }}
+          SSH_KEY_RAW: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -n "$SSH_KEY_B64" ]; then
+            echo "$SSH_KEY_B64" | base64 -d > deploy_key
+          else
+            printf '%s' "$SSH_KEY_RAW" > deploy_key
+          fi
+          chmod 600 deploy_key
+
+      - name: Add EC2 to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Copy Meta MCP to EC2
+        run: |
+          MCP_PATH="${{ secrets.EC2_MCP_PATH || vars.EC2_MCP_PATH || '/home/ubuntu/meta-mcp' }}"
+          MCP_PATH=$(echo "$MCP_PATH" | tr -d '\n\r' | xargs)
+          rsync -avz --delete \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude '.env' \
+            -e "ssh -i deploy_key -o StrictHostKeyChecking=no" \
+            ./ "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:$MCP_PATH/"
+
+      - name: Write Meta MCP .env on EC2
+        if: vars.USE_MCP_ENV_SECRET == 'true'
+        run: |
+          MCP_PATH="${{ secrets.EC2_MCP_PATH || vars.EC2_MCP_PATH || '/home/ubuntu/meta-mcp' }}"
+          MCP_PATH=$(echo "$MCP_PATH" | tr -d '\n\r' | xargs)
+          echo '${{ secrets.MCP_ENV_B64 }}' | base64 -d > mcp_env.txt
+          scp -i deploy_key -o StrictHostKeyChecking=no mcp_env.txt "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:$MCP_PATH/.env"
+          rm -f mcp_env.txt
+          echo "Meta MCP .env written on EC2."
+
+      - name: Install deps, build, and restart Meta MCP on EC2
+        run: |
+          MCP_PATH="${{ secrets.EC2_MCP_PATH || vars.EC2_MCP_PATH || '/home/ubuntu/meta-mcp' }}"
+          MCP_PATH=$(echo "$MCP_PATH" | tr -d '\n\r' | xargs)
+          ssh -i deploy_key -o StrictHostKeyChecking=no "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "set -e
+            [ -s \"\$HOME/.nvm/nvm.sh\" ] && . \"\$HOME/.nvm/nvm.sh\"
+            cd \"$MCP_PATH\"
+            npm ci || npm install
+            npm run build:local
+            if command -v pm2 >/dev/null 2>&1; then
+              pm2 restart meta-mcp --update-env || pm2 start ecosystem.config.cjs --update-env || true
+            else
+              echo 'PM2 not found; restart Meta MCP manually: npm run dev:local'
+            fi
+          "
+
+      - name: Verify deploy
+        run: |
+          echo "Deployed Meta MCP version ${{ steps.version.outputs.version }}"
+          MCP_PATH="${{ secrets.EC2_MCP_PATH || vars.EC2_MCP_PATH || '/home/ubuntu/meta-mcp' }}"
+          MCP_PATH=$(echo "$MCP_PATH" | tr -d '\n\r' | xargs)
+          ssh -i deploy_key -o StrictHostKeyChecking=no "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "[ -s \$HOME/.nvm/nvm.sh ] && . \$HOME/.nvm/nvm.sh; ls -la $MCP_PATH/ && (pm2 describe meta-mcp 2>/dev/null || true) && curl -s http://127.0.0.1:3000/health || true"
