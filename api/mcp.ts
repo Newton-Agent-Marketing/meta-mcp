@@ -48,12 +48,44 @@ function safeStringify(obj: unknown, space?: number): string {
 
 const handler = async (req: Request) => {
   const auth = getAuthFromRequest(req);
+  let rpcMethod = "unknown";
+  let bodyForHandler: string | undefined;
+  try {
+    const raw =
+      req.method !== "GET" && req.method !== "HEAD"
+        ? await req.text()
+        : "";
+    if (raw) {
+      bodyForHandler = raw;
+      try {
+        const parsed = JSON.parse(raw) as { method?: string };
+        rpcMethod = parsed?.method ?? "unknown";
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  const path = new URL(req.url).pathname;
   console.log(
     JSON.stringify({
       event: "mcp_request",
+      path,
+      http_method: req.method,
+      rpc_method: rpcMethod,
       token_present: !!auth,
     })
   );
+
+  const reqToPass =
+    bodyForHandler !== undefined
+      ? new Request(req.url, {
+          method: req.method,
+          headers: req.headers,
+          body: bodyForHandler,
+        })
+      : req;
 
   return createMcpHandler(
     (server) => {
@@ -2357,7 +2389,7 @@ const handler = async (req: Request) => {
       maxDuration: 60,
       verboseLogs: true,
     }
-  )(req);
+  )(reqToPass);
 };
 
 export { handler as GET, handler as POST };
