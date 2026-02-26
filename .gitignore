@@ -1,0 +1,11 @@
+node_modules
+build
+npm-debug.log
+.env
+.DS_Store
+.claude
+.vercel
+.env*.local
+.kiro
+.claude
+CLAUDE.md
