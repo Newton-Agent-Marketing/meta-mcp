@@ -1,4 +1,5 @@
-import { createMcpHandler } from "@vercel/mcp-adapter";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { AuthManager } from "../src/utils/auth.js";
 import { MetaApiClient } from "../src/meta-client.js";
@@ -79,16 +80,6 @@ const handler = async (req: Request) => {
   );
 
   // MCP transport requires Accept: application/json, text/event-stream.
-  // Always set explicitly (adapter/Node conversion can lose it on some platforms).
-  const incomingAccept = req.headers.get("accept") ?? req.headers.get("Accept") ?? "(missing)";
-  console.log(
-    JSON.stringify({
-      event: "mcp_handler_incoming",
-      path,
-      incoming_accept: incomingAccept,
-      headers_keys: [...req.headers.keys()],
-    })
-  );
   const headers = new Headers(req.headers);
   headers.set("Accept", "application/json, text/event-stream");
 
@@ -101,17 +92,9 @@ const handler = async (req: Request) => {
         })
       : new Request(req.url, { method: req.method, headers });
 
-  console.log(
-    JSON.stringify({
-      event: "mcp_handler_reqToPass",
-      path,
-      reqToPass_accept: reqToPass.headers.get("Accept"),
-      reqToPass_headers_entries: Object.fromEntries(reqToPass.headers.entries()),
-    })
-  );
-
-  const response = await createMcpHandler(
-    (server) => {
+  // Bypass Vercel adapter: it converts Request→Node→Request and loses Accept header on EC2.
+  // Use WebStandardStreamableHTTPServerTransport.handleRequest(req) directly.
+  const setupServer = (server: InstanceType<typeof McpServer>) => {
       let toolCount = 0;
       const originalTool = server.tool.bind(server);
       server.tool = function (name: string, ...rest: unknown[]) {
@@ -2402,27 +2385,18 @@ const handler = async (req: Request) => {
           server_name: "Meta Marketing API Server",
         })
       );
-    },
-    {
-      // Server options
-    },
-    {
-      // Vercel adapter configuration
-      basePath: "/api",
-      maxDuration: 60,
-      verboseLogs: true,
-    }
-  )(reqToPass);
+  };
 
-  console.log(
-    JSON.stringify({
-      event: "mcp_response",
-      path,
-      status: response.status,
-      status_406: response.status === 406,
-    })
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+  });
+  const server = new McpServer(
+    { name: "Meta Marketing API Server", version: "1.7.0" },
+    {}
   );
-  return response;
+  setupServer(server);
+  await server.connect(transport);
+  return transport.handleRequest(reqToPass);
 };
 
 export { handler as GET, handler as POST };
